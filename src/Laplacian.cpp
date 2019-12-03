@@ -3,6 +3,8 @@
 #include <igl/knn.h>
 #include <iostream>
 #include <igl/cotmatrix.h>
+#include <igl/doublearea.h>
+#include <igl/massmatrix.h>
 
 using namespace Eigen;
 using namespace std;
@@ -131,4 +133,66 @@ void laplacianTriMesh(const MatrixXd &V, const MatrixXi &F, MatrixXd &D, MatrixX
   }
 }
 
+void computeCentroidOfFace(const MatrixXd &V, const RowVectorXi &F, RowVectorXd& c){
+    c.setZero(3);
+    for(size_t i = 0; i < F.cols(); ++i){
+        c += V.row(F(i));
+    }
+    c/=double(F.cols());
+}
+void computeTriMeshFromCentroid(const MatrixXd &V, const RowVectorXi &F, const RowVectorXd& c, MatrixXd &V2, MatrixXi &F2){
+    F2.setZero(F.cols(), 3);
+    V2.setZero(F.cols()+1, 3);
+    V2.row(0) = c;
+    for(size_t i = 0; i < F.cols()-1; ++i){
+       V2.row(i+1) = V.row(F(i));
+       V2.row(i+2) = V.row(F(i+1));
+       F2(i,1) = i+1;
+       F2(i,2) = i+2;
+    }
+       F2(F.cols()-1,1) = F.cols();
+       F2(F.cols()-1,2) = 1;
+}
+VectorXd computeAreaPolygon(const MatrixXd &V, const MatrixXi &F){
+  VectorXd area(F.rows()); area.setZero();
+  if( F.cols() > 2){
+	  if(F.cols() == 3 || F.cols() == 4){
+	    igl::doublearea(V,F,area);
+	  } else {
+	      for(size_t i = 0; i < F.rows(); ++i){
+		 RowVectorXd c;
+		 computeCentroidOfFace(V, F.row(i), c);
+                 MatrixXd V2; MatrixXi F2;
+                 computeTriMeshFromCentroid(V, F.row(i),c, V2, F2);
+                 VectorXd tmp;
+                 igl::doublearea(V2,F2,tmp);
+                 area(i) = tmp.sum();
+	      }
+	  }
+  }
+  return area*0.5;
+}
+void massMatrix(const MatrixXd &V, const MatrixXi &F, MatrixXd& M){
+     if(F.cols() == 3 || F.cols() == 4){
+        SparseMatrix<double> tmp;
+        igl::massmatrix(V,F,igl::MASSMATRIX_TYPE_VORONOI, tmp);
+        M = tmp;
+     } else{
+       M.setZero(V.rows(), V.rows());
+       auto areas = computeAreaPolygon(V, F);
+       for(size_t i = 0; i < V.rows(); ++i){
+          double tot = 0;
+          for(size_t j = 0; j < F.rows(); ++j){
+             for(size_t k = 0; k < F.cols(); ++k){
+                 if(i == F(j,k)){
+                    tot += areas(j);
+                    break;
+                 }
+             }
+          }
+          tot /= 3;
+          M(i,i) = tot;
+       }
+    }
+}
 

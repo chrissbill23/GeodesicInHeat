@@ -1,10 +1,12 @@
 
 #include "DomainHeat.h"
+#include "Laplacian.h"
 #include <iostream>
 using namespace std;
 
 void DomainHeat::init() {
-  init_attr(); 
+  init_attr();
+  massMatrix(V, F, M);
   computeTimeStep();
 } 
 void DomainHeat::computeTimeStep(){

@@ -6,6 +6,8 @@
 using namespace Eigen;
 
 class DomainHeat {
+      private:
+          MatrixXd M;
       protected:
           MatrixXd V;
           MatrixXi F;
@@ -27,6 +29,7 @@ class DomainHeat {
           inline const MatrixXi& getFaces(){ return F;}
           inline const MatrixXd& getDistances(){ return D;}
           inline const MatrixXi& getAdjacency(){ return A;}
+          inline MatrixXd laplacianOperator(){ return M.inverse()*L;}
           
 };
 #endif

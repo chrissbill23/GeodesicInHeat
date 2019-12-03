@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
    viewer.core(0).align_camera_center(V, F);
    viewer.launch(); // run the viewer
    MatrixXd D; MatrixXd A; MatrixXd L; MatrixXi F2;
-   DomainHeat* t = new PointCloudHeat(V);
+   DomainHeat* t = new TriangleMeshHeat(V,F);
    t->init();
 
 }
