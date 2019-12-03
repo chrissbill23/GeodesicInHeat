@@ -7,12 +7,12 @@
 #include "HalfedgeBuilder.cpp"
 #include "TriangleMeshHeat.h"
 #include "PointCloudHeat.h"
+#include "Laplacian.h"
 
 using namespace Eigen; // to use the classes provided by Eigen library
 using namespace std;
 
 
-// ------------ main program ----------------
 int main(int argc, char *argv[])
 {
 
@@ -24,9 +24,12 @@ int main(int argc, char *argv[])
    } else {
             igl::readOFF(argv[1], V, F);
           }
-
+   cout<<"Tot vertices: "<<V.rows()<<" Tot faces: "<<F.rows()<<endl;
    igl::opengl::glfw::Viewer viewer; // create the 3d viewer
    viewer.data().set_mesh(V, F);
    viewer.core(0).align_camera_center(V, F);
    viewer.launch(); // run the viewer
+   MatrixXd D; MatrixXd A; MatrixXd L; MatrixXi F2;
+   DomainHeat* t = new TriangleMeshHeat(V,F);
+   t->init();
 }

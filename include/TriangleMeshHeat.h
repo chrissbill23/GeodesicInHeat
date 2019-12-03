@@ -5,8 +5,10 @@
 #include "DomainHeat.h"
 
 class TriangleMeshHeat: public DomainHeat {
+      protected:
+         void init_attr();
       public:
-          inline TriangleMeshHeat(HalfedgeDS h) : DomainHeat(h){}
+          inline TriangleMeshHeat(const MatrixXd& Ve, const MatrixXi& Fa){ V=Ve; F = Fa; }
           void compute(int);
 };
 #endif
