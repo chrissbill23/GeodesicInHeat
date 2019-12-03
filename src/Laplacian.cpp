@@ -7,7 +7,7 @@
 using namespace Eigen;
 using namespace std;
 
-void distances(const MatrixXd &V, MatrixXd &D, VectorXd& mind){
+/*void distances(const MatrixXd &V, MatrixXd &D, VectorXd& mind){
   int rows = V.rows();
   D = MatrixXd::Zero(rows,rows);
   mind.setConstant(rows, 1000000000.0);
@@ -56,7 +56,7 @@ void laplacianClouds(const MatrixXd &V, MatrixXd &D, MatrixXi &A, MatrixXd &L, d
           }
       }
   }
-}
+}*/
 void laplacianClouds(const MatrixXd &V, MatrixXd &D, MatrixXi &A,MatrixXi &F, MatrixXd &L, int k){
   cout << " LAPLACIAN COMPUTATION USING OCTREE"<<endl;
   MatrixXi I;
@@ -73,10 +73,24 @@ void laplacianClouds(const MatrixXd &V, MatrixXd &D, MatrixXi &A,MatrixXi &F, Ma
   L = MatrixXd::Zero(rows,rows);
   F = MatrixXi::Zero(rows,I.cols());
   for(int i = 0; i < rows; ++ i){
-      F(i,0) = i;
       for(int j = 1; j < I.cols(); ++ j){
-        int y = I(i,j);
+        int y = I(i,j), y0 = I(i,j-1);
         F(i,j) = y;
+        F(i,j-1) = y0;
+	double dist = (V.row(y0) - V.row(y)).norm();
+        D(y0,y) = dist;
+        D(y,y0) = dist;
+        if(A(y0,y) == 0){
+	   L(y0,y0) += 1;
+	   L(y,y) += 1;
+	   L(y0,y) = -1;
+	   L(y,y0) = -1;
+           A(y0,y) = 1;
+           A(y,y0) = 1;
+        }
+      }
+      if(I.cols() > 1 && A(i,I(i,I.cols()-1)) == 0 ){
+        int y = I(i,I.cols()-1);
 	double dist = (V.row(i) - V.row(y)).norm();
         D(i,y) = dist;
         D(y,i) = dist;
