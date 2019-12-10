@@ -12,6 +12,6 @@ file(GLOB SRCFILES src/*.cpp)
 file(GLOB HEADERSFILES include/*.h)
 add_executable(main ${HEADERSFILES} ${SRCFILES})
 
-target_link_libraries(main igl::core igl::opengl_glfw)
+target_link_libraries(main igl::core igl::opengl_glfw )
 include_directories(include/ src/)
 
