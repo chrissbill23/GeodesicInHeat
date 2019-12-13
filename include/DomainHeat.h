@@ -4,20 +4,22 @@
 
 #include <igl/min_quad_with_fixed.h>
 #include <chrono>
+#include <list>
+#include <thread>
 
 using namespace Eigen;
+using namespace std;
 
 class DomainHeat {
       private:
-          std::chrono::time_point<std::chrono::high_resolution_clock> start;
+          chrono::time_point<chrono::high_resolution_clock> start;
       protected:
-          MatrixXd V;
-          MatrixXi F;
+          MatrixXd* Vertices = nullptr;
+          MatrixXi* Faces = nullptr;
           VectorXd sources;
           SparseMatrix<double> L;
           SparseMatrix<double> M;
           SparseMatrix<double> M_inv;
-          MatrixXi A;
           double time;
           double smooth = 1.;
           VectorXd heat;
@@ -34,19 +36,16 @@ class DomainHeat {
           virtual void computeTimeStep() = 0;
 
           void startTimer();
-          void stopTimer();
+          int stopTimer();
       public:
-          void compute(int, double = -1.);
+          int compute(int, double = 1., bool = true);
           void init();
-
-          virtual VectorXi boundaryIndexes()const;
+          int reload(double);
 
 
           inline VectorXd getDistance()const{return poisson;}
           inline double getTime()const{ return time;}
           inline const SparseMatrix<double>& getLaplacian()const{ return L;}
-          inline const MatrixXi& getFaces()const{ return F;}
-          inline const MatrixXi& getAdjacency()const{ return A;}
           inline SparseMatrix<double> laplacianOperator()const{ return M_inv*L;}
           inline SparseMatrix<double> heatFlowOperator()const{ return M - time * L;}
           

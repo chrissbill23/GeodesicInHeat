@@ -1,6 +1,6 @@
 
 #include "TriangleMeshHeat.h"
-#include "Laplacian.h"
+#include "Utils.h"
 #include <igl/per_face_normals.h>
 #include <igl/doublearea.h>
 #include <igl/cotmatrix.h>
@@ -8,19 +8,19 @@
 #include <igl/avg_edge_length.h>
 
 void TriangleMeshHeat::init_attr(){
-  MatrixXd D;
-  laplacianTriMesh(V, F,D, A, L);
+  laplacianTriMesh(*Vertices, *Faces, L);
   //L = -0.5*L;
-  massMatrix(V, F, M, M_inv);
   cout << " FACTORIZATION OF LAPLACIAN OPERATOR"<<endl;
   laplacianFactor = LLT<MatrixXd> (-0.5*L);
-  findBoundaries(); 
+   massMatrix(*Vertices, *Faces, M, M_inv);
+    findBoundaries();
 }
 void TriangleMeshHeat::computeTangentNormals(){
   // compute the gradient operators and normals, using igl::grad and igl::per_face_normals functions
-  igl::per_face_normals(V,F,normals);
+  igl::per_face_normals(*Vertices, *Faces,normals);
   SparseMatrix<double> G;
-  igl::grad(V,F,G);
+  igl::grad(*Vertices, *Faces,G);
+  MatrixXd& V = *Vertices; MatrixXi& F = *Faces;
   tangents = MatrixXd::Zero(F.rows()*3, 3);//igl::grad return 3 gradients (one for each edge ) per triangle face
   for(size_t i = 0; i < F.rows(); ++i){
      tangents(i,0) = G.coeffRef(i, F(i,0));
@@ -37,24 +37,38 @@ void TriangleMeshHeat::computeTangentNormals(){
   }
 }
 void TriangleMeshHeat::computeTimeStep(){
-     double l = igl::avg_edge_length(V,F);
+     double l = igl::avg_edge_length(*Vertices,*Faces);
      time = l * l * smooth;
 }
 void TriangleMeshHeat::findBoundaries(){
-
+  MatrixXd& V = *Vertices;
+    for (int i = 0; i < V.rows(); i++) {
+        int edge1 = he.getEdge(i);
+        int face1 = he.getFace(edge1);
+        int edge2 = he.getOpposite(edge1);
+        int face2 = he.getFace(edge2);
+        if (face1 == -1 || face2==-1) {
+            boundaryIndexes.push_back(he.getTarget(edge1));
+            boundaryIndexes.push_back(he.getTarget(edge2));
+        }
+    }
 }
 void TriangleMeshHeat::solveHeatNeuman(bool boundary){
-     if(boundary){
-       //TODO
-       heatNeuman = heatFlowOperatorFactor.solve(sources); 
-     } else {
-       heatNeuman = heatFlowOperatorFactor.solve(sources);
-     }
+     heatNeuman = heatFlowOperatorFactor.solve(sources);
 }
 void TriangleMeshHeat::solveHeatDirichlet(bool boundary){
-     if(boundary){
-       //TODO
-         heatDirichlet = heatFlowOperatorFactor.solve(sources);
+     MatrixXd& V = *Vertices; MatrixXi& F = *Faces;
+     if(boundary && boundaryIndexes.size() > 0){
+        heatDirichlet = heatFlowOperatorFactor.solve(sources);
+        std::list<int>::iterator it;
+        int count = boundaryIndexes.size();
+        while (count > 0) {
+            int index = boundaryIndexes.front();
+            boundaryIndexes.pop_front();
+            //V.row(index)[0] = 0; V.row(index)[1] = 0; V.row(index)[2] = 0;
+            heatDirichlet[index] = 0;
+            --count;
+        }
      } else{
          heatDirichlet = heatFlowOperatorFactor.solve(sources);
      }
@@ -69,6 +83,8 @@ void TriangleMeshHeat::solveHeat(){
      }
 }
 void TriangleMeshHeat::solveVectorField(){
+     
+     MatrixXd& V = *Vertices; MatrixXi& F = *Faces;
      poisson.setZero(V.rows());
      //X.setZero(V.rows(), 3);
      VectorXd dblA;
@@ -133,6 +149,16 @@ void TriangleMeshHeat::solveVectorField(){
      }*/
 }
 void TriangleMeshHeat::solvePoisson(){
+     poisson = laplacianFactor.solve(poisson);
+     double mean = 0.;
+     for(size_t i = 0; i < sources.rows(); ++i){
+        if(sources(i) == 1)
+           mean += poisson(i);
+     }
+     mean /= sources.sum();
+     poisson = poisson - VectorXd::Constant(sources.rows(),mean);
+     if(poisson.mean() < 0)
+        poisson *= -1;
      /*poisson.setZero(V.rows(),1);
      for(int f = 0; f < F.rows(); ++f){
          int edge = he.getEdgeInFace(f);
@@ -173,15 +199,7 @@ void TriangleMeshHeat::solvePoisson(){
          cout<<endl<<endl<<endl;
      }
      poisson*= 0.5 ;*/
-     poisson = laplacianFactor.solve(poisson);
-     double mean = 0.;
-     for(size_t i = 0; i < sources.rows(); ++i){
-        if(sources(i) == 1)
-           mean += poisson(i);
-     }
-     mean /= sources.norm();
-     poisson = poisson - VectorXd::Constant(sources.rows(),mean);
-     if(poisson.mean() < 0)
-        poisson *= -1;
 }
+
+
 

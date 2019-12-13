@@ -7,13 +7,16 @@
 class PointCloudHeat: public DomainHeat {
       private:
         MatrixXd D;
+        MatrixXd C;
+        MatrixXi A;
+        LLT<MatrixXd> laplacianFactor;
       protected:
          void init_attr();
          void computeTangentNormals();
          void computeTimeStep();
          void solvePoisson();
       public:
-          inline PointCloudHeat(const MatrixXd& Ve){V=Ve;}
+          inline PointCloudHeat(MatrixXd& Ve){Vertices=&Ve;}
           void solveVectorField();
 };
 #endif

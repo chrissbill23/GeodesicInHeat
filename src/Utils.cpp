@@ -7,11 +7,19 @@
 #include <igl/massmatrix.h>
 #include <igl/fit_plane.h>
 #include <igl/centroid.h>
+#include <igl/adjacency_list.h>
+#include <igl/dijkstra.h>
+
+#include <chrono>
+#include <list>
+#include <set>
+#include <vector>
+
 //#include <igl/copyleft/cgal/point_areas.h>
 
 
-using namespace Eigen;
 using namespace std;
+using namespace Eigen;
 
 int factorial(int x){
     if(x <= 1)
@@ -21,6 +29,12 @@ int factorial(int x){
 double gaussianweight(const RowVectorXd& x0, const RowVectorXd& x1){
    double dist = (x0 - x1).norm();
    return pow(4*M_PI*0.25*exp(dist/(4*0.5)),-1);
+}
+double wendlandweight(const RowVectorXd& x0, const RowVectorXd& x1){
+   double d = (x0 - x1).norm();
+   double h = d*1.5;
+   h = h <= 0 ? 1. : h;
+   return pow(1-d/h,4)*(4*d/h+1);
 }
 void computeTriMeshFromCentroid(const MatrixXd &V, const RowVectorXi &F, const RowVectorXd& c, MatrixXd &V2, MatrixXi &F2){
     F2.setZero(F.cols(), 3);
@@ -129,7 +143,7 @@ void laplacianClouds(const MatrixXd &V, MatrixXd &D, MatrixXi &A,MatrixXi &F,
       for(size_t k = i+1; k < rows; ++k){
          double a = Areas(i) * Areas(k) * gaussianweight(V.row(i), V.row(k));
          sum += a;
-         L.coeffRef(i,k) = L.coeffRef(k,i) = a;
+         L.coeffRef(i,k) = a; L.coeffRef(k,i) = a;
          L.coeffRef(k,k) -= a;
       }
       L.coeffRef(i,i) -= sum;
@@ -138,30 +152,9 @@ void laplacianClouds(const MatrixXd &V, MatrixXd &D, MatrixXi &A,MatrixXi &F,
   }
   L = M_inv * L;
 }
-void laplacianTriMesh(const MatrixXd &V, const MatrixXi &F, MatrixXd &D, MatrixXi &A, SparseMatrix<double> &L){
+void laplacianTriMesh(const MatrixXd &V, const MatrixXi &F, SparseMatrix<double> &L){
   cout << " LAPLACIAN COMPUTATION USING MESH"<<endl;
-  int rows = F.rows();
-  D = MatrixXd::Zero(rows,rows);
-  A = MatrixXi::Zero(rows,rows);
   igl::cotmatrix(V,F,L);
-  for(size_t i = 0; i < rows; ++ i){
-      int v1 = F(i,0), v2 = F(i,1), v3 = F(i,2);
-      const RowVectorXd& ve1 = V.row(v1);
-      const RowVectorXd& ve2 = V.row(v2);
-      const RowVectorXd& ve3 = V.row(v3);
-
-      double dist1 = (ve1 - ve2).norm();
-      double dist2 = (ve1 - ve3).norm();
-      double dist3 = (ve3 - ve2).norm();
-
-      D(v1,v2) = D(v2,v1) = dist1; 
-      D(v1,v3) = D(v3,v1) = dist2; 
-      D(v3,v2) = D(v2,v3) = dist3;
-      
-      A(v1,v2) = A(v2,v1) = 1; 
-      A(v1,v3) = A(v3,v1) = 1; 
-      A(v3,v2) = A(v2,v3) = 1;
-  }
 }
 
 
@@ -199,10 +192,86 @@ double cotangent(const Vector3d& x0, const Vector3d& x1){
 double cotangent(const Vector3d& x0, const Vector3d& x1, const Vector3d& x2){
        return x0.norm()/x1.dot(x2);
 }
-void leastSquareInterp(const MatrixXd &V, const VectorXd &f, VectorXd &c, int m){
-       int d = V.cols();
-       int components = factorial(m+d)/(factorial(m)*factorial(d)); 
+void buildCoefMatrix(const RowVector3d &v, MatrixXd &A, RowVectorXd &b){
+     int x = 0, y = 1, z = 2;
+     A.setZero(20, 20);
+     A.row(0) << 1 , v(x), v(y) , v(z) , v(x)*v(x) , v(x)*v(y) , v(y)*v(y) , v(y)*v(z) , v(z)*v(z) , v(x)*v(z) , v(x)*v(x)*v(x),
+        v(x)*v(x)*v(y) , v(x)*v(y)*v(z) , v(y)*v(y)*v(z) , v(y)*v(y)*v(y) , v(y)*v(z)*v(z) , v(x)*v(z)*v(z) , v(x)*v(x)*v(z) , v(x)*v(y)*v(y) , v(z)*v(z)*v(z);
+     b = A.row(0);
+     for(size_t i = 1; i < 20; ++i){
+         A.row(i) = A.row(0)*A(0,i);
+     } 
+}
+void leastSquareInterp3D3Degree(const MatrixXd &V, const MatrixXi &neights, const VectorXd &f, MatrixXd &c){
+   c.setZero(V.rows(), 20); 
+   for(size_t i = 0; i < V.rows(); ++i){
+      RowVectorXd b = RowVectorXd::Zero(20);
+      MatrixXd A; A.setZero(20, 20); 
+      for(size_t j = 0; j < neights.cols(); ++j){
+           MatrixXd tmp; RowVectorXd btmp;
+           buildCoefMatrix(V.row(neights(i,j)), tmp, btmp);
+           A += tmp * wendlandweight(V.row(i), V.row(neights(i,j))); b += btmp*f(neights(i,j));
+      }
+      LDLT<MatrixXd> solver(A);
+      c.row(i) = solver.solve(b.transpose());
+    }
+}
+void gradientLeastSquared3D3Degree(const MatrixXd &v, const MatrixXd &C, MatrixXd& G){
+     if(C.cols() == 20){
+        G.setZero(v.rows(), 3); int x = 0, y = 1, z =2;
+        for(size_t i = 0; i < v.rows(); ++i){
+           G(i,x) =  C(i,1) + v(i,x)*2.*C(i,4) + v(i,y)*C(i,5)  + v(i,z)*C(i,9) + v(i,x)*v(i,x)*3.*C(i,10) + v(i,x)*2.*v(i,y)*C(i,11) + v(i,y)*v(i,z)*C(i,12) + v(i,z)*v(i,z)*C(i,16) + v(i,x)*2.*v(i,z)*C(i,17) + v(i,y)*v(i,y)*C(i,18);
+           G(i,y) =   C(i,2) + v(i,x)*C(i,5) + v(i,y)*2.*C(i,6) + v(i,z)*C(i,7) +  v(i,x)*v(i,x)*C(i,11) + v(i,x)*v(i,z)*C(i,12) + v(i,y)*2.*v(i,z)*C(i,13) + v(i,y)*3.*v(i,y)*C(i,14) + v(i,z)*v(i,z)*C(i,15)  +  v(i,x)*2.*v(i,y)*C(i,18);
+           G(i,z) = C(i,3) + v(i,y)*C(i,7) + v(i,z)*2.*C(i,8) + v(i,x)*C(i,9) + v(i,x)*v(i,y)*C(i,12) + v(i,y)*v(i,y)*C(i,13)  + v(i,y)*2.*v(i,z)*C(i,15) + v(i,x)*2.*v(i,z)*C(i,16) + v(i,x)*v(i,x)*C(i,17)  + v(i,z)*3.*v(i,z)*C(i,19);
+        }
+     }
+}
+double evaluateLeastSquared3D3Degree(const RowVector3d &v, const RowVectorXd &C){
+      int x = 0, y = 1, z = 2;
+      return C(0) + v(x)*C(1) + v(y)*C(2)  + v(z)*C(3)  + v(x)*v(x)*C(4)  + v(x)*v(y)*C(5)  + v(y)*v(y)*C(6)  + v(y)*v(z)*C(7)  + v(z)*v(z)*C(8)  + v(x)*v(z)*C(9)  + v(x)*v(x)*v(x)*C(10)  +
+        v(x)*v(x)*v(y)*C(11)  + v(x)*v(y)*v(z)*C(12)  + v(y)*v(y)*v(z)*C(13)  + v(y)*v(y)*v(y)*C(14)  + v(y)*v(z)*v(z)*C(15)  + v(x)*v(z)*v(z)*C(16)  + v(x)*v(x)*v(z)*C(17)  + v(x)*v(y)*v(y)*C(18)  + v(z)*v(z)*v(z)*C(19) ;
 }
 
 
+
+int dijkstra(const list<int> &sources, const MatrixXd &targets,const MatrixXi& F, VectorXd &min_distance){
+    chrono::time_point<chrono::high_resolution_clock> start =  chrono::high_resolution_clock::now();
+    if(sources.size() > 0){
+        vector<vector<int> > A; vector<double > D;
+        igl::adjacency_list(F,A);
+        min_distance.setConstant(targets.rows(), numeric_limits<VectorXd::Scalar>::infinity());
+        list <int>::const_iterator it;
+        VectorXi previous;
+        for(it = sources.begin(); it != sources.end(); ++it){
+            VectorXi visited = VectorXi::Zero(targets.rows());
+            int index = *it; D.clear();
+           for(size_t j = 0; j < targets.rows(); ++j)
+               D.push_back((targets.row(index)-targets.row(j)).norm());
+           int count = targets.rows();
+           visited(index) = 1;
+           min_distance(index) = 0.;
+           while(visited.sum() < targets.rows() && count > 0){
+               set<int > V;
+               for(size_t i = 0; i < targets.rows(); ++i)
+                   if(visited(i) == 0)
+                       V.insert(i);
+               VectorXd min_distancetmp;
+               int min = igl::dijkstra(index,V,A, D,min_distancetmp,previous);
+               visited(min) = 1;
+               double val = min_distancetmp(min);
+               if(val == 0.)
+                   min_distancetmp(min) = D[min];
+               if(min_distance(min) == numeric_limits<VectorXd::Scalar>::infinity())
+                  min_distance(min) = min_distancetmp(min);
+               else {
+                  min_distance(min) += min_distancetmp(min);
+               }
+               --count;
+            }
+        }
+        min_distance /= sources.size(); 
+    }
+    auto stop = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(stop-start).count();
+}
 

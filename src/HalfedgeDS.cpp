@@ -224,7 +224,11 @@ public:
 
 		}
 	}
-
+    HalfedgeDS& operator =(const HalfedgeDS& b){
+                nVertices = b.nVertices; nHalfedges = b.nVertices; nFaces = b.nFaces;
+                T = b.T; incidentEdge = b.incidentEdge; faces=b.faces;
+        return *this;
+     }
 private:
 	int nVertices, nHalfedges, nFaces; // number of vertices, halfedges and faces in the mesh
 
